@@ -1,0 +1,15 @@
+//
+//  NoiseHandshakePayload.proto
+//
+//
+//  Created by Brandon Toms on 5/1/22.
+//
+//  https://github.com/libp2p/specs/blob/master/noise/README.md#static-key-authentication
+
+syntax = "proto3";
+
+message NoiseHandshakePayload {
+  bytes identity_key = 1;
+  bytes identity_sig = 2;
+  bytes data         = 3;
+}
