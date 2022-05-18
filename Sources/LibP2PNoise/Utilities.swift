@@ -7,6 +7,9 @@
 
 import NIOCore
 import Foundation
+#if os(Linux)
+import CoreFoundation
+#endif
 
 protocol UIntToBytesConvertable {
     var toBytes: [UInt8] { get }
