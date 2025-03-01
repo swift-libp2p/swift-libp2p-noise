@@ -169,9 +169,9 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         //logger.info("Remote Peer: \(rpi.b58String)")
 
                         // This is kinda redundant but just to make sure we parsed/reconstructed the Remote PeerID correctly...
-                        //                        if (try? rpi.marshalPublicKey()) == lnhp.identityKey.bytes {
-                        //                            logger.info("The remote PeerID that we instantiated matches the identity key we were sent")
-                        //                        }
+                        // if (try? rpi.marshalPublicKey()) == lnhp.identityKey.bytes {
+                        //     logger.info("The remote PeerID that we instantiated matches the identity key we were sent")
+                        // }
 
                         // If we know who we dialed, then compare the returned identity public key with the p2p peer ID that we expect.
                         // - Note: It seems that only a few nodes abide by this rule. The libp2p ipfs bootstrap nodes seem to
@@ -263,12 +263,14 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             context.pipeline.addHandlers(
                                 [
                                     //Inbound Decryption Handler
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),  //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
                                     //Outbound Encryption Handler
+                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
                                     OutboundNoiseEncryptionHandler(
                                         cipherState: outboundCipherState,
                                         logger: self.logger
-                                    ),  //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
+                                    ),
                                 ],
                                 position: .after(self)
                             ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
@@ -386,12 +388,14 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             context.pipeline.addHandlers(
                                 [
                                     //Inbound Decryption Handler
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),  //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
                                     //Outbound Encryption Handler
+                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
                                     OutboundNoiseEncryptionHandler(
                                         cipherState: outboundCipherState,
                                         logger: self.logger
-                                    ),  //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
+                                    ),
                                 ],
                                 position: .after(self)
                             ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
@@ -426,17 +430,17 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         }
     }
 
-    //    private func abort(context:ChannelHandlerContext) {
-    //        channelSecuredCallback(false, nil)
-    //        context.close(mode: .all, promise: nil)
-    //    }
+    // private func abort(context:ChannelHandlerContext) {
+    //     channelSecuredCallback(false, nil)
+    //     context.close(mode: .all, promise: nil)
+    // }
 
     private func abort(context: ChannelHandlerContext, error: Error) {
-        //        channelSecuredCallback.completeWith(
-        //            context.close(mode: .all).map { _ -> (Bool, PeerID?) in
-        //                return (false, nil)
-        //            }
-        //        )
+        // channelSecuredCallback.completeWith(
+        //     context.close(mode: .all).map { _ -> (Bool, PeerID?) in
+        //         return (false, nil)
+        //     }
+        // )
         context.close(mode: .all).whenComplete { _ in
             self.channelSecuredCallback.fail(error)
         }
