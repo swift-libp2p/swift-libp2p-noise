@@ -18,7 +18,7 @@ extension Application.SecurityUpgraders.Provider {
     public static var noise: Self {
         .init { app in
             app.security.use {
-                return NoiseUpgrader(application: $0)
+                NoiseUpgrader(application: $0)
             }
         }
     }
