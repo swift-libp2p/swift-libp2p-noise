@@ -12,9 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
-import Foundation
 import CoreFoundation
+import Foundation
+import NIOCore
 
 protocol UIntToBytesConvertable {
     var toBytes: [UInt8] { get }
@@ -35,21 +35,25 @@ extension UIntToBytesConvertable {
 extension UInt64: UIntToBytesConvertable {
     var toBytes: [UInt8] {
         if CFByteOrderGetCurrent() == Int(CFByteOrderLittleEndian.rawValue) {
-            return toByteArr(endian: self.littleEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.littleEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         } else {
-            return toByteArr(endian: self.bigEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.bigEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         }
     }
 }
 
 extension ContiguousBytes {
-    var toBytes:[UInt8] {
+    var toBytes: [UInt8] {
         self.withUnsafeBytes { Array($0) }
     }
-    
-    var asData:Data {
+
+    var asData: Data {
         Data(self.toBytes)
     }
 }
