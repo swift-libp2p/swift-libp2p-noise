@@ -1,3 +1,16 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 // DO NOT EDIT.
 // swift-format-ignore-file
 //
@@ -6,12 +19,6 @@
 //
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
-
-//
-//  NoiseHandshakePayload.proto
-//
-//
-//  Created by Brandon Toms on 5/1/22.
 //
 //  https://github.com/libp2p/specs/blob/master/noise/README.md#static-key-authentication
 
