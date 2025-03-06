@@ -32,13 +32,13 @@ let package = Package(
         // Dependencies declare other packages that this package depends on.
 
         // Swift NIO for all things networking
-        .package(url: "https://github.com/apple/swift-nio-extras.git", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-nio-extras.git", .upToNextMajor(from: "1.0.0")),
 
         // LibP2P Core Modules
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMajor(from: "0.1.0")),
+        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.2.0")),
 
         // Noise (Security Protocol)
-        .package(url: "https://github.com/swift-libp2p/swift-noise.git", .upToNextMajor(from: "0.0.1")),
+        .package(url: "https://github.com/swift-libp2p/swift-noise.git", .upToNextMinor(from: "0.0.1")),
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
