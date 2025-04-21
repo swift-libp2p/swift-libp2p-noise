@@ -186,7 +186,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                                 "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
                             )
                         } else if let remoteID = expectedRemotePeerID, let rid = try? PeerID(cid: remoteID) {
-                            guard rid.id == rpi.id else {
+                            guard rid == rpi else {
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
                                 )
