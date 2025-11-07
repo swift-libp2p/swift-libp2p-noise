@@ -20,6 +20,7 @@ import NIOCore
 import NIOExtras
 import Noise
 import PeerID
+import NIOConcurrencyHelpers
 
 public enum NoiseErrors: Error {
     case invalidNoiseHandshakeMessage
@@ -34,7 +35,7 @@ public enum NoiseErrors: Error {
 /// Noise XX
 ///
 /// Should we have a seperate Handler responsible for the Handshake that installs the Encrypter and Decrypter once complete?
-internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler {
+internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler, Sendable {
     public typealias InboundIn = ByteBuffer  //Noise Handshake Message, or Ciphertext post handkshake
     public typealias InboundOut = ByteBuffer  //Plaintext post handshake
     public typealias OutboundOut = ByteBuffer  //Noise Handshake Message
@@ -43,26 +44,51 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     private let payloadSigPrefix = "noise-libp2p-static-key:"
 
-    private enum State {
+    private enum State: Sendable {
         case handshakeInProgress
         case secured
     }
-    private var state: State
+    
+    private var state: State {
+        get { _state.withLockedValue { $0 } }
+        set { _state.withLockedValue { $0 = newValue } }
+    }
+    private let _state: NIOLockedValueBox<State>
 
     private let handshakeState: Noise.HandshakeState
     private let staticNoiseKey: Curve25519.KeyAgreement.PrivateKey
 
-    private var logger: Logger
+    private let logger: Logger
     private let localPeerInfo: PeerID
-    private var remotePeerInfo: PeerID? = nil
-    private var expectedRemotePeerID: String? = nil
+    
+    private var remotePeerInfo: PeerID? {
+        get { _remotePeerInfo.withLockedValue { $0 } }
+        set { _remotePeerInfo.withLockedValue { $0 = newValue } }
+    }
+    private let _remotePeerInfo: NIOLockedValueBox<PeerID?>
+    
+    private var expectedRemotePeerID: String? {
+        get { _expectedRemotePeerID.withLockedValue { $0 } }
+        set { _expectedRemotePeerID.withLockedValue { $0 = newValue } }
+    }
+    private let _expectedRemotePeerID: NIOLockedValueBox<String?>
+    
     private let mode: LibP2PCore.Mode
 
-    private var messagesWritten: Int = 0
-    private var lengthEncoder: LengthFieldPrepender
-    private var lengthDecoder: LengthFieldBasedFrameDecoder
+    private var messagesWritten: Int {
+        get { _messagesWritten.withLockedValue { $0 } }
+        set { _messagesWritten.withLockedValue { $0 = newValue } }
+    }
+    private let _messagesWritten: NIOLockedValueBox<Int> = .init(0)
+    
+    private let lengthEncoder: LengthFieldPrepender
+    private let lengthDecoder: LengthFieldBasedFrameDecoder
 
-    private var shouldWarn: Bool = false
+    private var shouldWarn: Bool {
+        get { _shouldWarn.withLockedValue { $0 } }
+        set { _shouldWarn.withLockedValue { $0 = newValue } }
+    }
+    private let _shouldWarn: NIOLockedValueBox<Bool> = .init(false)
 
     /// - TODO: Include a param for the Remote PeerID when we're the dialer so we can compare the NoiseHandshakePayload public key to the peer dialed.
     public init(
@@ -73,10 +99,14 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         expectedRemotePeerID: String?
     ) {
         self.localPeerInfo = peerID
-        self.remotePeerInfo = nil
-        self.expectedRemotePeerID = expectedRemotePeerID
-        self.state = .handshakeInProgress
+        self._remotePeerInfo = .init(nil)
+        self._expectedRemotePeerID = .init(expectedRemotePeerID)
+        self._state = .init(.handshakeInProgress)
+        
+        var logger = logger
+        logger[metadataKey: "NOISE"] = .string("\(mode.rawValue)")
         self.logger = logger
+        
         self.mode = mode
 
         // An MSS Callback that we can use to notify it once the handshake is complete and the channel is secured
@@ -101,8 +131,6 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
         self.lengthDecoder = LengthFieldBasedFrameDecoder(lengthFieldBitLength: .twoBytes, lengthFieldEndianness: .big)
         self.lengthEncoder = LengthFieldPrepender(lengthFieldBitLength: .twoBytes, lengthFieldEndianness: .big)
-
-        self.logger[metadataKey: "NOISE"] = .string("\(mode.rawValue)")
     }
 
     public func handlerAdded(context: ChannelHandlerContext) {
@@ -161,7 +189,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
                         // Reconstruct Listeners Handshake Payload
                         //logger.info("Attempting to decode NoiseHandshakePayload")
-                        let lnhp = try NoiseHandshakePayload(contiguousBytes: payload)
+                        let lnhp = try NoiseHandshakePayload(serializedBytes: payload)
                         //logger.info("Attempting to instantiate Remote PeerID from NoiseHandshakePayload IdentityKey")
                         //logger.info("Identity Key: \(lnhp.identityKey.asString(base: .base16))")
 
@@ -495,3 +523,6 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         context.close(mode: .all, promise: nil)
     }
 }
+
+extension LengthFieldPrepender: @retroactive @unchecked Sendable { }
+extension LengthFieldBasedFrameDecoder: @retroactive @unchecked Sendable { }
