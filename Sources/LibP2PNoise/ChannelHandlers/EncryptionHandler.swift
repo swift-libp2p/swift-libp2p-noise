@@ -19,20 +19,21 @@ import NIOCore
 import Noise
 
 // Noise XX Outbound Data Encrypter
-internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler {
+internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler, Sendable {
     public typealias OutboundIn = ByteBuffer  //Plaintext data
     public typealias OutboundOut = ByteBuffer  //Encrypted Ciphertext data
 
     /// Do we need to encrypt and decrypt with AD? Or can we just use the CipherState without the running Hash (h)?
     /// The JS implementation just passes an empty buffer into the AD. Let's try the same...
     private let cs: Noise.CipherState
-    private var logger: Logger
+    private let logger: Logger
 
     public init(cipherState: Noise.CipherState, logger: Logger) {
+        var logger = logger
+        logger[metadataKey: "NOISE"] = .string("Encrypter")
+
         self.logger = logger
         self.cs = cipherState
-
-        self.logger[metadataKey: "NOISE"] = .string("Encrypter")
     }
 
     public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
