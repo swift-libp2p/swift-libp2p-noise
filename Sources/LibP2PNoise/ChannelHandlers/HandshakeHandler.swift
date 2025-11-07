@@ -16,11 +16,11 @@ import Crypto
 import Foundation
 import LibP2PCore
 import Logging
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOExtras
 import Noise
 import PeerID
-import NIOConcurrencyHelpers
 
 public enum NoiseErrors: Error {
     case invalidNoiseHandshakeMessage
@@ -48,7 +48,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         case handshakeInProgress
         case secured
     }
-    
+
     private var state: State {
         get { _state.withLockedValue { $0 } }
         set { _state.withLockedValue { $0 = newValue } }
@@ -60,19 +60,19 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     private let logger: Logger
     private let localPeerInfo: PeerID
-    
+
     private var remotePeerInfo: PeerID? {
         get { _remotePeerInfo.withLockedValue { $0 } }
         set { _remotePeerInfo.withLockedValue { $0 = newValue } }
     }
     private let _remotePeerInfo: NIOLockedValueBox<PeerID?>
-    
-    private var expectedRemotePeerID: String? {
+
+    private var expectedRemotePeerID: PeerID? {
         get { _expectedRemotePeerID.withLockedValue { $0 } }
         set { _expectedRemotePeerID.withLockedValue { $0 = newValue } }
     }
-    private let _expectedRemotePeerID: NIOLockedValueBox<String?>
-    
+    private let _expectedRemotePeerID: NIOLockedValueBox<PeerID?>
+
     private let mode: LibP2PCore.Mode
 
     private var messagesWritten: Int {
@@ -80,7 +80,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         set { _messagesWritten.withLockedValue { $0 = newValue } }
     }
     private let _messagesWritten: NIOLockedValueBox<Int> = .init(0)
-    
+
     private let lengthEncoder: LengthFieldPrepender
     private let lengthDecoder: LengthFieldBasedFrameDecoder
 
@@ -96,17 +96,17 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         mode: LibP2PCore.Mode,
         logger: Logger,
         secured: EventLoopPromise<Connection.SecuredResult>,
-        expectedRemotePeerID: String?
+        expectedRemotePeerID: PeerID?
     ) {
         self.localPeerInfo = peerID
         self._remotePeerInfo = .init(nil)
         self._expectedRemotePeerID = .init(expectedRemotePeerID)
         self._state = .init(.handshakeInProgress)
-        
+
         var logger = logger
         logger[metadataKey: "NOISE"] = .string("\(mode.rawValue)")
         self.logger = logger
-        
+
         self.mode = mode
 
         // An MSS Callback that we can use to notify it once the handshake is complete and the channel is secured
@@ -213,16 +213,16 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.trace(
                                 "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
                             )
-                        } else if let remoteID = expectedRemotePeerID, let rid = try? PeerID(cid: remoteID) {
-                            guard rid == rpi else {
+                        } else if let expectedRemotePeerID {
+                            guard expectedRemotePeerID == rpi else {
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
                                 )
-                                logger.error("Expected: b58: \(rid.b58String), cid: \(rid.cidString)")
+                                logger.error("Expected: b58: \(expectedRemotePeerID.b58String), cid: \(expectedRemotePeerID.cidString)")
                                 logger.error("=/=")
                                 logger.error("Provided: b58: \(rpi.b58String), cid: \(rpi.cidString)")
                                 logger.error(
-                                    "Expected Key Type: \(rid.type), \(String(describing: rid.keyPair?.keyType))"
+                                    "Expected Key Type: \(expectedRemotePeerID.type), \(String(describing: expectedRemotePeerID.keyPair?.keyType))"
                                 )
                                 logger.error(
                                     "Provided Key Type: \(rpi.type), \(String(describing: rpi.keyPair?.keyType))"
@@ -373,7 +373,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
                         // Verify the initiators signature payload with their Public PeerID
                         //logger.info("Verifying NoiesHandshakePayload")
-                        let inhp = try NoiseHandshakePayload(contiguousBytes: payload)
+                        let inhp = try NoiseHandshakePayload(serializedBytes: payload)
 
                         // Initiate Remote PeerID from the payloads identityKey
                         guard let rpid = try? PeerID(marshaledPublicKey: inhp.identityKey) else {
@@ -524,5 +524,5 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
     }
 }
 
-extension LengthFieldPrepender: @retroactive @unchecked Sendable { }
-extension LengthFieldBasedFrameDecoder: @retroactive @unchecked Sendable { }
+extension LengthFieldPrepender: @retroactive @unchecked Sendable {}
+extension LengthFieldBasedFrameDecoder: @retroactive @unchecked Sendable {}
