@@ -218,7 +218,9 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
                                 )
-                                logger.error("Expected: b58: \(expectedRemotePeerID.b58String), cid: \(expectedRemotePeerID.cidString)")
+                                logger.error(
+                                    "Expected: b58: \(expectedRemotePeerID.b58String), cid: \(expectedRemotePeerID.cidString)"
+                                )
                                 logger.error("=/=")
                                 logger.error("Provided: b58: \(rpi.b58String), cid: \(rpi.cidString)")
                                 logger.error(
