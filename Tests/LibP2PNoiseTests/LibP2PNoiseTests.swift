@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Testing
 import LibP2P
+import Testing
 
 @testable import LibP2PNoise
 
