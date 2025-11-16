@@ -22,7 +22,7 @@ import NIOExtras
 import Noise
 import PeerID
 
-public enum NoiseErrors: Error {
+public enum NoiseErrors: Error, Sendable {
     case invalidNoiseHandshakeMessage
     case remotePeerMismatch
     case invalidSignature
