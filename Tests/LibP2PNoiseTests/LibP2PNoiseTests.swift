@@ -13,12 +13,17 @@
 //===----------------------------------------------------------------------===//
 
 import Testing
+import LibP2P
 
 @testable import LibP2PNoise
 
 @Suite("Libp2p Noise Tests")
 struct LibP2PNoiseTests {
-    @Test func testExample() throws {
-        // TODO: Implement tests
+    @Test func testAppConfiguration() throws {
+        let app = try Application(.detect())
+        app.security.use(.noise)
+        #expect(app.security.available.map { $0.description } == ["/noise"])
+        let _ = try #require(app.security.upgrader(for: NoiseUpgrader.self))
+        let _ = try #require(app.security.upgrader(forKey: NoiseUpgrader.key))
     }
 }
