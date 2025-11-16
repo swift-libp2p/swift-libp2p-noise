@@ -12,15 +12,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
+import LibP2P
+import Testing
 
 @testable import LibP2PNoise
 
-final class LibP2PNoiseTests: XCTestCase {
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct
-        // results.
-        //XCTAssertEqual(LibP2PNoise().text, "Hello, World!")
+@Suite("Libp2p Noise Tests")
+struct LibP2PNoiseTests {
+    @Test func testAppConfiguration() throws {
+        let app = try Application(.detect())
+        app.security.use(.noise)
+        #expect(app.security.available.map { $0.description } == ["/noise"])
+        let _ = try #require(app.security.upgrader(for: NoiseUpgrader.self))
+        let _ = try #require(app.security.upgrader(forKey: NoiseUpgrader.key))
     }
 }

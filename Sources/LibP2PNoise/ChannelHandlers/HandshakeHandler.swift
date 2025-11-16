@@ -12,29 +12,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
+// TODO: Remove preconcurrency tag once we drop support for swift 6.0
+@preconcurrency import Crypto
 import Foundation
 import LibP2PCore
 import Logging
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOExtras
 import Noise
 import PeerID
 
-public enum NoiseErrors: Error {
-    case invalidNoiseHandshakeMessage
-    case remotePeerMismatch
-    case invalidSignature
-    case failedToInstantiateCipherStates
-    case invalidIdentityKey
-    case invalidRemoteStaticKey
-    case invalidSignaturePrefix
-}
-
 /// Noise XX
 ///
 /// Should we have a seperate Handler responsible for the Handshake that installs the Encrypter and Decrypter once complete?
-internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler {
+internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler, Sendable {
     public typealias InboundIn = ByteBuffer  //Noise Handshake Message, or Ciphertext post handkshake
     public typealias InboundOut = ByteBuffer  //Plaintext post handshake
     public typealias OutboundOut = ByteBuffer  //Noise Handshake Message
@@ -43,26 +35,51 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     private let payloadSigPrefix = "noise-libp2p-static-key:"
 
-    private enum State {
+    private enum State: Sendable {
         case handshakeInProgress
         case secured
     }
-    private var state: State
+
+    private var state: State {
+        get { _state.withLockedValue { $0 } }
+        set { _state.withLockedValue { $0 = newValue } }
+    }
+    private let _state: NIOLockedValueBox<State>
 
     private let handshakeState: Noise.HandshakeState
     private let staticNoiseKey: Curve25519.KeyAgreement.PrivateKey
 
-    private var logger: Logger
+    private let logger: Logger
     private let localPeerInfo: PeerID
-    private var remotePeerInfo: PeerID? = nil
-    private var expectedRemotePeerID: String? = nil
+
+    private var remotePeerInfo: PeerID? {
+        get { _remotePeerInfo.withLockedValue { $0 } }
+        set { _remotePeerInfo.withLockedValue { $0 = newValue } }
+    }
+    private let _remotePeerInfo: NIOLockedValueBox<PeerID?>
+
+    private var expectedRemotePeerID: PeerID? {
+        get { _expectedRemotePeerID.withLockedValue { $0 } }
+        set { _expectedRemotePeerID.withLockedValue { $0 = newValue } }
+    }
+    private let _expectedRemotePeerID: NIOLockedValueBox<PeerID?>
+
     private let mode: LibP2PCore.Mode
 
-    private var messagesWritten: Int = 0
-    private var lengthEncoder: LengthFieldPrepender
-    private var lengthDecoder: LengthFieldBasedFrameDecoder
+    private var messagesWritten: Int {
+        get { _messagesWritten.withLockedValue { $0 } }
+        set { _messagesWritten.withLockedValue { $0 = newValue } }
+    }
+    private let _messagesWritten: NIOLockedValueBox<Int> = .init(0)
 
-    private var shouldWarn: Bool = false
+    private let lengthEncoder: LengthFieldPrepender
+    private let lengthDecoder: LengthFieldBasedFrameDecoder
+
+    private var shouldWarn: Bool {
+        get { _shouldWarn.withLockedValue { $0 } }
+        set { _shouldWarn.withLockedValue { $0 = newValue } }
+    }
+    private let _shouldWarn: NIOLockedValueBox<Bool> = .init(false)
 
     /// - TODO: Include a param for the Remote PeerID when we're the dialer so we can compare the NoiseHandshakePayload public key to the peer dialed.
     public init(
@@ -70,13 +87,17 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         mode: LibP2PCore.Mode,
         logger: Logger,
         secured: EventLoopPromise<Connection.SecuredResult>,
-        expectedRemotePeerID: String?
+        expectedRemotePeerID: PeerID?
     ) {
         self.localPeerInfo = peerID
-        self.remotePeerInfo = nil
-        self.expectedRemotePeerID = expectedRemotePeerID
-        self.state = .handshakeInProgress
+        self._remotePeerInfo = .init(nil)
+        self._expectedRemotePeerID = .init(expectedRemotePeerID)
+        self._state = .init(.handshakeInProgress)
+
+        var logger = logger
+        logger[metadataKey: "NOISE"] = .string("\(mode.rawValue)")
         self.logger = logger
+
         self.mode = mode
 
         // An MSS Callback that we can use to notify it once the handshake is complete and the channel is secured
@@ -101,8 +122,6 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
         self.lengthDecoder = LengthFieldBasedFrameDecoder(lengthFieldBitLength: .twoBytes, lengthFieldEndianness: .big)
         self.lengthEncoder = LengthFieldPrepender(lengthFieldBitLength: .twoBytes, lengthFieldEndianness: .big)
-
-        self.logger[metadataKey: "NOISE"] = .string("\(mode.rawValue)")
     }
 
     public func handlerAdded(context: ChannelHandlerContext) {
@@ -156,12 +175,12 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.error(
                                 "Invalid Noise Handshake Message Received. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.invalidNoiseHandshakeMessage)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidNoiseHandshakeMessage)
                         }
 
                         // Reconstruct Listeners Handshake Payload
                         //logger.info("Attempting to decode NoiseHandshakePayload")
-                        let lnhp = try NoiseHandshakePayload(contiguousBytes: payload)
+                        let lnhp = try NoiseHandshakePayload(serializedBytes: payload)
                         //logger.info("Attempting to instantiate Remote PeerID from NoiseHandshakePayload IdentityKey")
                         //logger.info("Identity Key: \(lnhp.identityKey.asString(base: .base16))")
 
@@ -180,26 +199,28 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             guard remote.b58String == rpi.b58String else {
                                 //logger.error("Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection... (RemotePeerInfo)")
                                 //logger.error("\(remote.b58String) =/= \(rpi.b58String)" )
-                                return abort(context: context, error: NoiseErrors.remotePeerMismatch)
+                                return abort(context: context, error: NoiseUpgrader.Error.remotePeerMismatch)
                             }
                             logger.trace(
                                 "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
                             )
-                        } else if let remoteID = expectedRemotePeerID, let rid = try? PeerID(cid: remoteID) {
-                            guard rid == rpi else {
+                        } else if let expectedRemotePeerID {
+                            guard expectedRemotePeerID == rpi else {
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
                                 )
-                                logger.error("Expected: b58: \(rid.b58String), cid: \(rid.cidString)")
+                                logger.error(
+                                    "Expected: b58: \(expectedRemotePeerID.b58String), cid: \(expectedRemotePeerID.cidString)"
+                                )
                                 logger.error("=/=")
                                 logger.error("Provided: b58: \(rpi.b58String), cid: \(rpi.cidString)")
                                 logger.error(
-                                    "Expected Key Type: \(rid.type), \(String(describing: rid.keyPair?.keyType))"
+                                    "Expected Key Type: \(expectedRemotePeerID.type), \(String(describing: expectedRemotePeerID.keyPair?.keyType))"
                                 )
                                 logger.error(
                                     "Provided Key Type: \(rpi.type), \(String(describing: rpi.keyPair?.keyType))"
                                 )
-                                return abort(context: context, error: NoiseErrors.remotePeerMismatch)
+                                return abort(context: context, error: NoiseUpgrader.Error.remotePeerMismatch)
                             }
                             logger.trace(
                                 "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
@@ -220,7 +241,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.error(
                                 "Listeners Noise Handshake Signature Verification failed. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.invalidSignature)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidSignature)
                         }
 
                         // If we made it this far, then everything checks out!
@@ -238,7 +259,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.error(
                                 "Failed to instantiate CipherStates after processing message C. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.failedToInstantiateCipherStates)
+                            return abort(context: context, error: NoiseUpgrader.Error.failedToInstantiateCipherStates)
                         }
 
                         context.writeAndFlush(
@@ -340,35 +361,35 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.error(
                                 "Failed to instantiate CipherStates after processing message C. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.failedToInstantiateCipherStates)
+                            return abort(context: context, error: NoiseUpgrader.Error.failedToInstantiateCipherStates)
                         }
 
                         // Verify the initiators signature payload with their Public PeerID
                         //logger.info("Verifying NoiesHandshakePayload")
-                        let inhp = try NoiseHandshakePayload(contiguousBytes: payload)
+                        let inhp = try NoiseHandshakePayload(serializedBytes: payload)
 
                         // Initiate Remote PeerID from the payloads identityKey
                         guard let rpid = try? PeerID(marshaledPublicKey: inhp.identityKey) else {
                             logger.error(
                                 "Could not instantiate PeerID from Initiators Identity Key. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.invalidIdentityKey)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidIdentityKey)
                         }
                         guard let remoteStatic = try? self.handshakeState.peerStatic() else {
                             logger.error("Failed to access remote peers static noise key")
-                            return abort(context: context, error: NoiseErrors.invalidRemoteStaticKey)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidRemoteStaticKey)
                         }
                         // Construct the data we expect the signature to be valid for
                         guard let sigPrefix = payloadSigPrefix.data(using: .utf8) else {
                             logger.error("Invalid Signature Prefix")
-                            return abort(context: context, error: NoiseErrors.invalidSignaturePrefix)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidSignaturePrefix)
                         }
                         let expectedSignedData = sigPrefix + remoteStatic.rawRepresentation
                         guard try rpid.isValidSignature(inhp.identitySig, for: expectedSignedData) else {
                             logger.error(
                                 "Initiators Noise Handshake Signature Verification failed. Aborting Handshake and closing connection..."
                             )
-                            return abort(context: context, error: NoiseErrors.invalidSignature)
+                            return abort(context: context, error: NoiseUpgrader.Error.invalidSignature)
                         }
 
                         // Upgrade the channel with the encrypter / decrypter handlers
@@ -495,3 +516,6 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         context.close(mode: .all, promise: nil)
     }
 }
+
+extension LengthFieldPrepender: @retroactive @unchecked Sendable {}
+extension LengthFieldBasedFrameDecoder: @retroactive @unchecked Sendable {}

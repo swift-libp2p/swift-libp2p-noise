@@ -30,7 +30,7 @@ public struct NoiseUpgrader: SecurityUpgrader {
             mode: conn.mode,
             logger: conn.logger,
             secured: securedPromise,
-            expectedRemotePeerID: conn.expectedRemotePeer?.b58String
+            expectedRemotePeerID: conn.expectedRemotePeer
         )
 
         return conn.channel.pipeline.addHandler(handshake, position: position)
