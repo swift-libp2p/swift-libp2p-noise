@@ -14,6 +14,7 @@
 - [Usage](#usage)
   - [Example](#example)
   - [API](#api)
+- [Dependencies](#dependencies)
 - [Contributing](#contributing)
 - [Credits](#credits)
 - [License](#license)
@@ -64,6 +65,12 @@ app.security.use( .noise )
 ``` swift
 Not Applicable
 ```
+
+## Dependencies
+
+| Package Name | Description | Build Status (macOS & Linux) |
+| --------- | --------- | --------- |
+| [`swift-noise`](//github.com/swift-libp2p/swift-noise) | A Swift implementation of the [Noise Handshake Protocol](https://noiseprotocol.org/noise.html) | ![Build & Test (macos and linux)](https://github.com/swift-libp2p/swift-noise/actions/workflows/build+test.yml/badge.svg) |
 
 ## Contributing
 
