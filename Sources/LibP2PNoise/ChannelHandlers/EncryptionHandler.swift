@@ -12,8 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
-import LibP2PCore
 import Logging
 import NIOCore
 import Noise

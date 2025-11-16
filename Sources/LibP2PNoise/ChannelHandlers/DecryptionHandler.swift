@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
 import Logging
 import NIOCore
 import Noise
