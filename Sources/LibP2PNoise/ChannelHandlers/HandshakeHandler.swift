@@ -12,7 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
+// TODO: Remove preconcurrency tag once we drop support for swift 6.0
+@preconcurrency import Crypto
 import Foundation
 import LibP2PCore
 import Logging
