@@ -489,7 +489,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     public func errorCaught(context: ChannelHandlerContext, error: Error) {
         logger.error("Error: \(error)")
-        // Fail the secured promise so awaited handshakes don't hang, then tear down the channel.
+        // Fail the secured promise so awaited handshakes are notified, then tear down the channel.
         failHandshakeIfNeeded(error)
         context.close(mode: .all, promise: nil)
     }

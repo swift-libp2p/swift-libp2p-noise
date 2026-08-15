@@ -63,7 +63,7 @@ internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler, Sen
         } catch {
 
             logger.error("Error: \(error)")
-            // Fail the caller's promise so awaited writes don't hang, then tear down the channel.
+            // Fail the caller's promise so awaited writes are notified, then tear down the channel.
             promise?.fail(error)
             context.close(promise: nil)
 
