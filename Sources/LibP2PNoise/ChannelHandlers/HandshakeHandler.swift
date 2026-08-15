@@ -83,11 +83,11 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
     private let lengthEncoder: LengthFieldPrepender
     private let lengthDecoder: LengthFieldBasedFrameDecoder
 
-    private var shouldWarn: Bool {
+    private var shouldWarn: SecurityWarnings? {
         get { _shouldWarn.withLockedValue { $0 } }
         set { _shouldWarn.withLockedValue { $0 = newValue } }
     }
-    private let _shouldWarn: NIOLockedValueBox<Bool> = .init(false)
+    private let _shouldWarn: NIOLockedValueBox<SecurityWarnings?> = .init(nil)
 
     public init(
         peerID: PeerID,
@@ -227,7 +227,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.warning(
                                 "Skipping Remote PeerID IdentityKey Check due to remote peer info being nil..."
                             )
-                            self.shouldWarn = true
+                            self.shouldWarn = .skippedRemotePeerValidation
                         }
 
                         // Construct the data we expect the signature to be valid for
