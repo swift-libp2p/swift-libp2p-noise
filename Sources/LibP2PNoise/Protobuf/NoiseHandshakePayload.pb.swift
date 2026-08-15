@@ -21,7 +21,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -29,32 +33,71 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-struct NoiseHandshakePayload: Sendable {
+nonisolated struct NoiseExtensions: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var identityKey: Data = Data()
+  var webtransportCerthashes: [Data] = []
 
-  var identitySig: Data = Data()
-
-  var data: Data = Data()
+  var streamMuxers: [String] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 }
 
+nonisolated struct NoiseHandshakePayload: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var identityKey: Data {
+    get {_identityKey ?? Data()}
+    set {_identityKey = newValue}
+  }
+  /// Returns true if `identityKey` has been explicitly set.
+  var hasIdentityKey: Bool {self._identityKey != nil}
+  /// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
+  mutating func clearIdentityKey() {self._identityKey = nil}
+
+  var identitySig: Data {
+    get {_identitySig ?? Data()}
+    set {_identitySig = newValue}
+  }
+  /// Returns true if `identitySig` has been explicitly set.
+  var hasIdentitySig: Bool {self._identitySig != nil}
+  /// Clears the value of `identitySig`. Subsequent reads from it will return its default value.
+  mutating func clearIdentitySig() {self._identitySig = nil}
+
+  var extensions: NoiseExtensions {
+    get {_extensions ?? NoiseExtensions()}
+    set {_extensions = newValue}
+  }
+  /// Returns true if `extensions` has been explicitly set.
+  var hasExtensions: Bool {self._extensions != nil}
+  /// Clears the value of `extensions`. Subsequent reads from it will return its default value.
+  mutating func clearExtensions() {self._extensions = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _identityKey: Data? = nil
+  fileprivate var _identitySig: Data? = nil
+  fileprivate var _extensions: NoiseExtensions? = nil
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-extension NoiseHandshakePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = "NoiseHandshakePayload"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}identity_key\0\u{3}identity_sig\0\u{1}data\0")
+nonisolated extension NoiseExtensions: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = "NoiseExtensions"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}webtransport_certhashes\0\u{3}stream_muxers\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -62,31 +105,70 @@ extension NoiseHandshakePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageIm
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.identityKey) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.identitySig) }()
-      case 3: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.webtransportCerthashes) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.streamMuxers) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.identityKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.identityKey, fieldNumber: 1)
+    if !self.webtransportCerthashes.isEmpty {
+      try visitor.visitRepeatedBytesField(value: self.webtransportCerthashes, fieldNumber: 1)
     }
-    if !self.identitySig.isEmpty {
-      try visitor.visitSingularBytesField(value: self.identitySig, fieldNumber: 2)
-    }
-    if !self.data.isEmpty {
-      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 3)
+    if !self.streamMuxers.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.streamMuxers, fieldNumber: 2)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
+  static func ==(lhs: NoiseExtensions, rhs: NoiseExtensions) -> Bool {
+    if lhs.webtransportCerthashes != rhs.webtransportCerthashes {return false}
+    if lhs.streamMuxers != rhs.streamMuxers {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension NoiseHandshakePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = "NoiseHandshakePayload"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}identity_key\0\u{3}identity_sig\0\u{2}\u{2}extensions\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self._identityKey) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self._identitySig) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._extensions) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._identityKey {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._identitySig {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._extensions {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
   static func ==(lhs: NoiseHandshakePayload, rhs: NoiseHandshakePayload) -> Bool {
-    if lhs.identityKey != rhs.identityKey {return false}
-    if lhs.identitySig != rhs.identitySig {return false}
-    if lhs.data != rhs.data {return false}
+    if lhs._identityKey != rhs._identityKey {return false}
+    if lhs._identitySig != rhs._identitySig {return false}
+    if lhs._extensions != rhs._extensions {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
