@@ -89,7 +89,6 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
     }
     private let _shouldWarn: NIOLockedValueBox<Bool> = .init(false)
 
-    /// - TODO: Include a param for the Remote PeerID when we're the dialer so we can compare the NoiseHandshakePayload public key to the peer dialed.
     public init(
         peerID: PeerID,
         mode: LibP2PCore.Mode,
