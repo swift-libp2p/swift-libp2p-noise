@@ -202,16 +202,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // If we know who we dialed, then compare the returned identity public key with the p2p peer ID that we expect.
                         // - Note: It seems that only a few nodes abide by this rule. The libp2p ipfs bootstrap nodes seem to
                         //   but most of the peers discovered throughout the kad dht fail this check (might be due to old peer records)
-                        if let remote = remotePeerInfo {
-                            guard remote.b58String == rpi.b58String else {
-                                //logger.error("Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection... (RemotePeerInfo)")
-                                //logger.error("\(remote.b58String) =/= \(rpi.b58String)" )
-                                return abort(context: context, error: NoiseUpgrader.Error.remotePeerMismatch)
-                            }
-                            logger.trace(
-                                "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
-                            )
-                        } else if let expectedRemotePeerID {
+                        if let expectedRemotePeerID {
                             guard expectedRemotePeerID == rpi else {
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
