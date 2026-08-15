@@ -278,33 +278,11 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         channelSecuredCallback.completeWith(
                             //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
                             //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                            //installEncryptionHandlersAndRemoveSelf(context, inboundCipherState: cs2!, outboundCipherState: cs1!)
-                            context.pipeline.addHandlers(
-                                [
-                                    //Inbound Decryption Handler
-                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
-                                    //Outbound Encryption Handler
-                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                                    OutboundNoiseEncryptionHandler(
-                                        cipherState: outboundCipherState,
-                                        logger: self.logger
-                                    ),
-                                ],
-                                position: .after(self)
-                            ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
-                                self.logger.trace(
-                                    "Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)"
-                                )
-                                return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
-                                    self.logger.debug("Channel Secured 🔐")
-                                    return (
-                                        NoiseUpgrader.key,
-                                        remotePeer: self.remotePeerInfo,
-                                        warning: self.shouldWarn ? SecurityWarnings.skippedRemotePeerValidation : nil
-                                    )
-                                }
-                            }
+                            installEncryptionHandlersAndRemoveSelf(
+                                context: context,
+                                inboundCipherState: inboundCipherState,
+                                outboundCipherState: outboundCipherState
+                            )
                         )
 
                     } catch {
@@ -400,33 +378,11 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         channelSecuredCallback.completeWith(
                             //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
                             //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                            //installEncryptionHandlersAndRemoveSelf(context, inboundCipherState: cs1, outboundCipherState: cs2)
-                            context.pipeline.addHandlers(
-                                [
-                                    //Inbound Decryption Handler
-                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
-                                    //Outbound Encryption Handler
-                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                                    OutboundNoiseEncryptionHandler(
-                                        cipherState: outboundCipherState,
-                                        logger: self.logger
-                                    ),
-                                ],
-                                position: .after(self)
-                            ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
-                                self.logger.trace(
-                                    "Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)"
-                                )
-                                return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
-                                    self.logger.debug("Channel Secured 🔐")
-                                    return (
-                                        NoiseUpgrader.key,
-                                        remotePeer: self.remotePeerInfo,
-                                        warning: nil
-                                    )
-                                }
-                            }
+                            installEncryptionHandlersAndRemoveSelf(
+                                context: context,
+                                inboundCipherState: inboundCipherState,
+                                outboundCipherState: outboundCipherState
+                            )
                         )
 
                     } catch {
@@ -484,20 +440,33 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         return try Array(nhp.serializedData())
     }
 
-    //    private func installEncryptionHandlersAndRemoveSelf(_ context:ChannelHandlerContext, inboundCipherState:Noise.CipherState, outboundCipherState:Noise.CipherState) -> EventLoopFuture<(Bool, PeerID?)> {
-    //        context.pipeline.addHandlers([
-    //            //Inbound Decryption Handler
-    //            InboundNoiseDecryptionHandler(cipherState: inboundCipherState), //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-    //            //Outbound Encryption Handler
-    //            OutboundNoiseEncryptionHandler(cipherState: outboundCipherState) //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-    //            ], position: .after(self)
-    //        ).flatMap { _ -> EventLoopFuture<(Bool, PeerID?)> in
-    //            self.logger.info("Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)")
-    //            return context.pipeline.removeHandler(self).map { _ -> (Bool, PeerID?) in
-    //                (true, self.remotePeerInfo)
-    //            }
-    //        }
-    //    }
+    private func installEncryptionHandlersAndRemoveSelf(
+        context: ChannelHandlerContext,
+        inboundCipherState: Noise.CipherState,
+        outboundCipherState: Noise.CipherState
+    ) -> EventLoopFuture<Connection.SecuredResult> {
+        context.pipeline.addHandlers(
+            [
+                //Inbound Decryption Handler
+                //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
+                //Outbound Encryption Handler
+                //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
+                OutboundNoiseEncryptionHandler(cipherState: outboundCipherState, logger: self.logger),
+            ],
+            position: .after(self)
+        ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
+            self.logger.trace("Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)")
+            return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
+                self.logger.debug("Channel Secured 🔐")
+                return (
+                    NoiseUpgrader.key,
+                    remotePeer: self.remotePeerInfo,
+                    warning: self.shouldWarn
+                )
+            }
+        }
+    }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
     public func channelReadComplete(context: ChannelHandlerContext) {
