@@ -254,6 +254,46 @@ struct HandshakeHandlerTests {
         listener.teardown()
     }
 
+    // MARK: - Tampered transport data
+
+    @Test("A tampered transport frame is rejected and the channel is torn down")
+    func tamperedCiphertextIsRejected() throws {
+        let (initiator, listener) = try handshake()
+
+        // Encrypt a real message on the initiator and grab the framed ciphertext off the wire.
+        send(initiator.channel, Array("tampered".utf8))
+        var bytes: [UInt8] = []
+        while let buf = try initiator.channel.readOutbound(as: ByteBuffer.self) {
+            bytes.append(contentsOf: buf.readableBytesView)
+        }
+        // Frame = [2-byte length prefix][ciphertext || 16-byte AEAD tag]. Flip a byte inside the
+        // ciphertext body (past the length prefix) so the Poly1305 tag no longer authenticates.
+        try #require(bytes.count > 2)
+        bytes[bytes.count - 1] ^= 0xFF
+
+        // Deliver the corrupted frame to the listener. The length prefix is untouched, so it frames
+        // cleanly and reaches the decryption handler, where AEAD authentication must fail. The
+        // handler fires the error down the pipeline (which EmbeddedChannel's tail rethrows here)
+        // before closing.
+        var surfacedError = false
+        do {
+            try listener.channel.writeInbound(ByteBuffer(bytes: bytes))
+        } catch {
+            surfacedError = true
+        }
+        #expect(surfacedError, "a decryption failure should be surfaced via fireErrorCaught")
+
+        // The decryption handler must tear down the channel rather than forward garbage plaintext.
+        #expect(listener.channel.isActive == false, "listener should close on an undecryptable frame")
+        #expect(
+            try drainInboundPlaintext(listener.channel).isEmpty,
+            "no plaintext may be forwarded for a tampered frame"
+        )
+
+        initiator.teardown()
+        listener.teardown()
+    }
+
 }
 
 // MARK: - Test Harness
