@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 extension NoiseUpgrader {
-    public enum Error: Swift.Error, Sendable {
+    public enum Error: Swift.Error, Equatable, Sendable {
         case invalidNoiseHandshakeMessage
         case remotePeerMismatch
         case invalidSignature
@@ -21,5 +21,6 @@ extension NoiseUpgrader {
         case invalidIdentityKey
         case invalidRemoteStaticKey
         case invalidSignaturePrefix
+        case connectionClosedDuringHandshake
     }
 }
