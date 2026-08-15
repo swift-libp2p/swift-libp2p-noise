@@ -118,7 +118,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
             config:
                 Noise.Config(
                     cipherSuite: Noise.CipherSuite(
-                        keyCurve: .ed25519,
+                        keyCurve: .x25519,
                         cipher: .ChaChaPoly1305,
                         hashFunction: .sha256
                     ),
