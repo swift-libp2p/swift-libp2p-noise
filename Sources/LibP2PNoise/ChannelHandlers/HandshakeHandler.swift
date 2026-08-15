@@ -33,7 +33,15 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     private let channelSecuredCallback: EventLoopPromise<Connection.SecuredResult>
 
-    private let payloadSigPrefix = "noise-libp2p-static-key:"
+    /// Guards `channelSecuredCallback` so it is only ever completed once. Completing an
+    /// `EventLoopPromise` twice traps, and several teardown paths (`abort` -> `close` ->
+    /// `channelInactive`) can otherwise all race to complete it.
+    private let _handshakeSettled: NIOLockedValueBox<Bool> = .init(false)
+
+    /// The libp2p Noise static-key signature prefix
+    /// The signed data is this prefix followed by the Noise static public key.
+    /// See: https://github.com/libp2p/specs/blob/master/noise/README.md#static-key-authentication
+    private static let payloadSigPrefix = Data("noise-libp2p-static-key:".utf8)
 
     private enum State: Sendable {
         case handshakeInProgress
@@ -234,8 +242,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
                         // Construct the data we expect the signature to be valid for
                         let expectedSignedData =
-                            try! payloadSigPrefix.data(using: .utf8)!
-                            + self.handshakeState.peerStatic().rawRepresentation
+                            try Self.payloadSigPrefix + self.handshakeState.peerStatic().rawRepresentation
                         //logger.info("Checking identitySig against the PeerID we instantiated to verify signature")
                         guard try rpi.isValidSignature(lnhp.identitySig, for: expectedSignedData) else {
                             logger.error(
@@ -380,11 +387,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             return abort(context: context, error: NoiseUpgrader.Error.invalidRemoteStaticKey)
                         }
                         // Construct the data we expect the signature to be valid for
-                        guard let sigPrefix = payloadSigPrefix.data(using: .utf8) else {
-                            logger.error("Invalid Signature Prefix")
-                            return abort(context: context, error: NoiseUpgrader.Error.invalidSignaturePrefix)
-                        }
-                        let expectedSignedData = sigPrefix + remoteStatic.rawRepresentation
+                        let expectedSignedData = Self.payloadSigPrefix + remoteStatic.rawRepresentation
                         guard try rpid.isValidSignature(inhp.identitySig, for: expectedSignedData) else {
                             logger.error(
                                 "Initiators Noise Handshake Signature Verification failed. Aborting Handshake and closing connection..."
@@ -476,7 +479,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         // The identity_sig field is produced using the libp2p identity private key according to the signing rules in the peer id spec.
         // The data to be signed is the UTF-8 string `noise-libp2p-static-key:`, followed by the Noise static public key, encoded according to the rules defined in section 5 of RFC 7748.
         nhp.identitySig = try localPeerInfo.signature(
-            for: payloadSigPrefix.data(using: .utf8)! + staticNoiseKey.publicKey.rawRepresentation
+            for: Self.payloadSigPrefix + staticNoiseKey.publicKey.rawRepresentation
         )
 
         return try Array(nhp.serializedData())
