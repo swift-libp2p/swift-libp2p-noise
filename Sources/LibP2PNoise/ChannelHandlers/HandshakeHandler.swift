@@ -267,6 +267,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // Upgrade the channel with the encrypter / decrypter handlers
                         self.state = .secured
                         self.remotePeerInfo = rpi
+                        self.markHandshakeSecured()
 
                         logger.trace("Channel Secured! Attempting to install Encryption and Decryption Handlers")
 
@@ -388,6 +389,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // Upgrade the channel with the encrypter / decrypter handlers
                         self.state = .secured
                         self.remotePeerInfo = rpid
+                        self.markHandshakeSecured()
 
                         logger.trace("Channel Secured! Attempting to install Encryption and Decryption Handlers")
 
@@ -444,21 +446,28 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         }
     }
 
-    // private func abort(context:ChannelHandlerContext) {
-    //     channelSecuredCallback(false, nil)
-    //     context.close(mode: .all, promise: nil)
-    // }
-
     private func abort(context: ChannelHandlerContext, error: Error) {
-        // channelSecuredCallback.completeWith(
-        //     context.close(mode: .all).map { _ -> (Bool, PeerID?) in
-        //         return (false, nil)
-        //     }
-        // )
-        context.close(mode: .all).whenComplete { _ in
-            self.channelSecuredCallback.fail(error)
-        }
+        // Fail the secured promise with the specific error *before* closing. Closing fires
+        // `channelInactive`, which would otherwise settle the promise first with a generic error.
+        failHandshakeIfNeeded(error)
+        context.close(mode: .all, promise: nil)
+    }
 
+    /// Fails the secured promise exactly once. No-op if the handshake has already been settled
+    /// (successfully secured, or previously failed). Prevents double-completion traps.
+    private func failHandshakeIfNeeded(_ error: Error) {
+        let shouldFail = _handshakeSettled.withLockedValue { settled -> Bool in
+            if settled { return false }
+            settled = true
+            return true
+        }
+        if shouldFail { channelSecuredCallback.fail(error) }
+    }
+
+    /// Marks the handshake as settled so later teardown events (`channelInactive` / `errorCaught`)
+    /// don't try to fail the secured promise that success is completing.
+    private func markHandshakeSecured() {
+        _handshakeSettled.withLockedValue { $0 = true }
     }
 
     private func createPayload() throws -> [UInt8] {
@@ -494,18 +503,25 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
     public func channelReadComplete(context: ChannelHandlerContext) {
         switch state {
         case .handshakeInProgress:
+            // absorb the event if we're still handshaking
             return
         case .secured:
-            // Is this what we actually want to do??
+            // pass the event along
             context.fireChannelReadComplete()
         }
-        //context.flush()
+    }
+
+    public func channelInactive(context: ChannelHandlerContext) {
+        // If the connection drops before the handshake completes, fail the secured promise so the
+        // dialer isn't left waiting forever. No-op once the handshake has been settled.
+        failHandshakeIfNeeded(NoiseUpgrader.Error.connectionClosedDuringHandshake)
+        context.fireChannelInactive()
     }
 
     public func errorCaught(context: ChannelHandlerContext, error: Error) {
         logger.error("Error: \(error)")
-        /// Do we propogate this message along the pipeline?
-        //context.fireErrorCaught(error)
+        // Fail the secured promise so awaited handshakes don't hang, then tear down the channel.
+        failHandshakeIfNeeded(error)
         context.close(mode: .all, promise: nil)
     }
 }
