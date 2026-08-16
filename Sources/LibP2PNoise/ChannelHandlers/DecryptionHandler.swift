@@ -48,8 +48,10 @@ internal final class InboundNoiseDecryptionHandler: ChannelInboundHandler, Senda
 
         } catch {
 
-            // Do we propogate the error with a fireErrorCaught() ??
+            // A decryption failure means the ciphertext failed AEAD authentication (corrupted or
+            // forged). Surface it to the rest of the pipeline for diagnosability, then fail closed.
             logger.error("Error: \(error)")
+            context.fireErrorCaught(error)
             context.close(promise: nil)
 
         }

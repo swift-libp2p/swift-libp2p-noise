@@ -33,7 +33,15 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
 
     private let channelSecuredCallback: EventLoopPromise<Connection.SecuredResult>
 
-    private let payloadSigPrefix = "noise-libp2p-static-key:"
+    /// Guards `channelSecuredCallback` so it is only ever completed once. Completing an
+    /// `EventLoopPromise` twice traps, and several teardown paths (`abort` -> `close` ->
+    /// `channelInactive`) can otherwise all race to complete it.
+    private let _handshakeSettled: NIOLockedValueBox<Bool> = .init(false)
+
+    /// The libp2p Noise static-key signature prefix
+    /// The signed data is this prefix followed by the Noise static public key.
+    /// See: https://github.com/libp2p/specs/blob/master/noise/README.md#static-key-authentication
+    private static let payloadSigPrefix = Data("noise-libp2p-static-key:".utf8)
 
     private enum State: Sendable {
         case handshakeInProgress
@@ -75,13 +83,12 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
     private let lengthEncoder: LengthFieldPrepender
     private let lengthDecoder: LengthFieldBasedFrameDecoder
 
-    private var shouldWarn: Bool {
+    private var shouldWarn: SecurityWarnings? {
         get { _shouldWarn.withLockedValue { $0 } }
         set { _shouldWarn.withLockedValue { $0 = newValue } }
     }
-    private let _shouldWarn: NIOLockedValueBox<Bool> = .init(false)
+    private let _shouldWarn: NIOLockedValueBox<SecurityWarnings?> = .init(nil)
 
-    /// - TODO: Include a param for the Remote PeerID when we're the dialer so we can compare the NoiseHandshakePayload public key to the peer dialed.
     public init(
         peerID: PeerID,
         mode: LibP2PCore.Mode,
@@ -111,7 +118,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
             config:
                 Noise.Config(
                     cipherSuite: Noise.CipherSuite(
-                        keyCurve: .ed25519,
+                        keyCurve: .x25519,
                         cipher: .ChaChaPoly1305,
                         hashFunction: .sha256
                     ),
@@ -195,16 +202,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // If we know who we dialed, then compare the returned identity public key with the p2p peer ID that we expect.
                         // - Note: It seems that only a few nodes abide by this rule. The libp2p ipfs bootstrap nodes seem to
                         //   but most of the peers discovered throughout the kad dht fail this check (might be due to old peer records)
-                        if let remote = remotePeerInfo {
-                            guard remote.b58String == rpi.b58String else {
-                                //logger.error("Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection... (RemotePeerInfo)")
-                                //logger.error("\(remote.b58String) =/= \(rpi.b58String)" )
-                                return abort(context: context, error: NoiseUpgrader.Error.remotePeerMismatch)
-                            }
-                            logger.trace(
-                                "Validated the dialed peer! \(rpi.b58String) is in fact who they claim to be..."
-                            )
-                        } else if let expectedRemotePeerID {
+                        if let expectedRemotePeerID {
                             guard expectedRemotePeerID == rpi else {
                                 logger.error(
                                     "Listeners Noise Handshake Identity Key does not match the Peer we dialed. Aborting Handshake and closing connection...(ExpectedRemotePeerID)"
@@ -229,13 +227,12 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             logger.warning(
                                 "Skipping Remote PeerID IdentityKey Check due to remote peer info being nil..."
                             )
-                            self.shouldWarn = true
+                            self.shouldWarn = .skippedRemotePeerValidation
                         }
 
                         // Construct the data we expect the signature to be valid for
                         let expectedSignedData =
-                            try! payloadSigPrefix.data(using: .utf8)!
-                            + self.handshakeState.peerStatic().rawRepresentation
+                            try Self.payloadSigPrefix + self.handshakeState.peerStatic().rawRepresentation
                         //logger.info("Checking identitySig against the PeerID we instantiated to verify signature")
                         guard try rpi.isValidSignature(lnhp.identitySig, for: expectedSignedData) else {
                             logger.error(
@@ -270,6 +267,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // Upgrade the channel with the encrypter / decrypter handlers
                         self.state = .secured
                         self.remotePeerInfo = rpi
+                        self.markHandshakeSecured()
 
                         logger.trace("Channel Secured! Attempting to install Encryption and Decryption Handlers")
 
@@ -280,33 +278,11 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         channelSecuredCallback.completeWith(
                             //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
                             //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                            //installEncryptionHandlersAndRemoveSelf(context, inboundCipherState: cs2!, outboundCipherState: cs1!)
-                            context.pipeline.addHandlers(
-                                [
-                                    //Inbound Decryption Handler
-                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
-                                    //Outbound Encryption Handler
-                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                                    OutboundNoiseEncryptionHandler(
-                                        cipherState: outboundCipherState,
-                                        logger: self.logger
-                                    ),
-                                ],
-                                position: .after(self)
-                            ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
-                                self.logger.trace(
-                                    "Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)"
-                                )
-                                return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
-                                    self.logger.debug("Channel Secured 🔐")
-                                    return (
-                                        NoiseUpgrader.key,
-                                        remotePeer: self.remotePeerInfo,
-                                        warning: self.shouldWarn ? SecurityWarnings.skippedRemotePeerValidation : nil
-                                    )
-                                }
-                            }
+                            installEncryptionHandlersAndRemoveSelf(
+                                context: context,
+                                inboundCipherState: inboundCipherState,
+                                outboundCipherState: outboundCipherState
+                            )
                         )
 
                     } catch {
@@ -380,11 +356,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                             return abort(context: context, error: NoiseUpgrader.Error.invalidRemoteStaticKey)
                         }
                         // Construct the data we expect the signature to be valid for
-                        guard let sigPrefix = payloadSigPrefix.data(using: .utf8) else {
-                            logger.error("Invalid Signature Prefix")
-                            return abort(context: context, error: NoiseUpgrader.Error.invalidSignaturePrefix)
-                        }
-                        let expectedSignedData = sigPrefix + remoteStatic.rawRepresentation
+                        let expectedSignedData = Self.payloadSigPrefix + remoteStatic.rawRepresentation
                         guard try rpid.isValidSignature(inhp.identitySig, for: expectedSignedData) else {
                             logger.error(
                                 "Initiators Noise Handshake Signature Verification failed. Aborting Handshake and closing connection..."
@@ -395,6 +367,7 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         // Upgrade the channel with the encrypter / decrypter handlers
                         self.state = .secured
                         self.remotePeerInfo = rpid
+                        self.markHandshakeSecured()
 
                         logger.trace("Channel Secured! Attempting to install Encryption and Decryption Handlers")
 
@@ -405,33 +378,11 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
                         channelSecuredCallback.completeWith(
                             //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
                             //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                            //installEncryptionHandlersAndRemoveSelf(context, inboundCipherState: cs1, outboundCipherState: cs2)
-                            context.pipeline.addHandlers(
-                                [
-                                    //Inbound Decryption Handler
-                                    //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-                                    InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
-                                    //Outbound Encryption Handler
-                                    //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-                                    OutboundNoiseEncryptionHandler(
-                                        cipherState: outboundCipherState,
-                                        logger: self.logger
-                                    ),
-                                ],
-                                position: .after(self)
-                            ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
-                                self.logger.trace(
-                                    "Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)"
-                                )
-                                return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
-                                    self.logger.debug("Channel Secured 🔐")
-                                    return (
-                                        NoiseUpgrader.key,
-                                        remotePeer: self.remotePeerInfo,
-                                        warning: nil
-                                    )
-                                }
-                            }
+                            installEncryptionHandlersAndRemoveSelf(
+                                context: context,
+                                inboundCipherState: inboundCipherState,
+                                outboundCipherState: outboundCipherState
+                            )
                         )
 
                     } catch {
@@ -451,21 +402,28 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         }
     }
 
-    // private func abort(context:ChannelHandlerContext) {
-    //     channelSecuredCallback(false, nil)
-    //     context.close(mode: .all, promise: nil)
-    // }
-
     private func abort(context: ChannelHandlerContext, error: Error) {
-        // channelSecuredCallback.completeWith(
-        //     context.close(mode: .all).map { _ -> (Bool, PeerID?) in
-        //         return (false, nil)
-        //     }
-        // )
-        context.close(mode: .all).whenComplete { _ in
-            self.channelSecuredCallback.fail(error)
-        }
+        // Fail the secured promise with the specific error *before* closing. Closing fires
+        // `channelInactive`, which would otherwise settle the promise first with a generic error.
+        failHandshakeIfNeeded(error)
+        context.close(mode: .all, promise: nil)
+    }
 
+    /// Fails the secured promise exactly once. No-op if the handshake has already been settled
+    /// (successfully secured, or previously failed). Prevents double-completion traps.
+    private func failHandshakeIfNeeded(_ error: Error) {
+        let shouldFail = _handshakeSettled.withLockedValue { settled -> Bool in
+            if settled { return false }
+            settled = true
+            return true
+        }
+        if shouldFail { channelSecuredCallback.fail(error) }
+    }
+
+    /// Marks the handshake as settled so later teardown events (`channelInactive` / `errorCaught`)
+    /// don't try to fail the secured promise that success is completing.
+    private func markHandshakeSecured() {
+        _handshakeSettled.withLockedValue { $0 = true }
     }
 
     private func createPayload() throws -> [UInt8] {
@@ -476,43 +434,63 @@ internal final class InboundNoiseHandshakeHandler: ChannelInboundHandler, Remova
         // The identity_sig field is produced using the libp2p identity private key according to the signing rules in the peer id spec.
         // The data to be signed is the UTF-8 string `noise-libp2p-static-key:`, followed by the Noise static public key, encoded according to the rules defined in section 5 of RFC 7748.
         nhp.identitySig = try localPeerInfo.signature(
-            for: payloadSigPrefix.data(using: .utf8)! + staticNoiseKey.publicKey.rawRepresentation
+            for: Self.payloadSigPrefix + staticNoiseKey.publicKey.rawRepresentation
         )
 
         return try Array(nhp.serializedData())
     }
 
-    //    private func installEncryptionHandlersAndRemoveSelf(_ context:ChannelHandlerContext, inboundCipherState:Noise.CipherState, outboundCipherState:Noise.CipherState) -> EventLoopFuture<(Bool, PeerID?)> {
-    //        context.pipeline.addHandlers([
-    //            //Inbound Decryption Handler
-    //            InboundNoiseDecryptionHandler(cipherState: inboundCipherState), //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
-    //            //Outbound Encryption Handler
-    //            OutboundNoiseEncryptionHandler(cipherState: outboundCipherState) //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
-    //            ], position: .after(self)
-    //        ).flatMap { _ -> EventLoopFuture<(Bool, PeerID?)> in
-    //            self.logger.info("Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)")
-    //            return context.pipeline.removeHandler(self).map { _ -> (Bool, PeerID?) in
-    //                (true, self.remotePeerInfo)
-    //            }
-    //        }
-    //    }
+    private func installEncryptionHandlersAndRemoveSelf(
+        context: ChannelHandlerContext,
+        inboundCipherState: Noise.CipherState,
+        outboundCipherState: Noise.CipherState
+    ) -> EventLoopFuture<Connection.SecuredResult> {
+        context.pipeline.addHandlers(
+            [
+                //Inbound Decryption Handler
+                //Listener uses cs1 for inbound, Initiator uses cs2 for inbound
+                InboundNoiseDecryptionHandler(cipherState: inboundCipherState, logger: self.logger),
+                //Outbound Encryption Handler
+                //Listener uses cs2 for outbound, Initiator uses cs1 for outbound
+                OutboundNoiseEncryptionHandler(cipherState: outboundCipherState, logger: self.logger),
+            ],
+            position: .after(self)
+        ).flatMap { _ -> EventLoopFuture<Connection.SecuredResult> in
+            self.logger.trace("Encryption and Decryption Handlers Installed! Uninstalling self (handshake handler)")
+            return context.pipeline.removeHandler(self).map { _ -> Connection.SecuredResult in
+                self.logger.debug("Channel Secured 🔐")
+                return (
+                    NoiseUpgrader.key,
+                    remotePeer: self.remotePeerInfo,
+                    warning: self.shouldWarn
+                )
+            }
+        }
+    }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
     public func channelReadComplete(context: ChannelHandlerContext) {
         switch state {
         case .handshakeInProgress:
+            // absorb the event if we're still handshaking
             return
         case .secured:
-            // Is this what we actually want to do??
+            // pass the event along
             context.fireChannelReadComplete()
         }
-        //context.flush()
+    }
+
+    public func channelInactive(context: ChannelHandlerContext) {
+        // If the connection drops before the handshake completes, fail the secured promise so the
+        // dialer isn't left waiting forever. No-op once the handshake has been settled.
+        failHandshakeIfNeeded(NoiseUpgrader.Error.connectionClosedDuringHandshake)
+        context.fireChannelInactive()
     }
 
     public func errorCaught(context: ChannelHandlerContext, error: Error) {
         logger.error("Error: \(error)")
-        /// Do we propogate this message along the pipeline?
-        //context.fireErrorCaught(error)
+        // Fail the secured promise so awaited handshakes are notified, then tear down the channel.
+        failHandshakeIfNeeded(error)
         context.close(mode: .all, promise: nil)
     }
 }

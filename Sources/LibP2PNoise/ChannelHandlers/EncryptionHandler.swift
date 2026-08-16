@@ -26,6 +26,13 @@ internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler, Sen
     private let cs: Noise.CipherState
     private let logger: Logger
 
+    /// Maximum plaintext we can seal into a single Noise transport message.
+    ///
+    /// All Noise messages MUST be <= 65535 bytes on the wire.
+    /// Subtracting the 16-byte AEAD tag (Poly1305 / GCM) leaves 65519 bytes of plaintext per message.
+    /// Larger writes are split across multiple transport messages.
+    private static let maxTransportPlaintext = 65_535 - 16
+
     public init(cipherState: Noise.CipherState, logger: Logger) {
         var logger = logger
         logger[metadataKey: "NOISE"] = .string("Encrypter")
@@ -35,21 +42,29 @@ internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler, Sen
     }
 
     public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
-        let bufferIn = unwrapOutboundIn(data)
+        var bufferIn = unwrapOutboundIn(data)
 
         do {
 
-            let ciphertext = try cs.encrypt(plaintext: Array(bufferIn.readableBytesView))
+            // Split writes larger than a single Noise message into multiple writes.
+            while bufferIn.readableBytes > Self.maxTransportPlaintext {
+                let chunk = bufferIn.readSlice(length: Self.maxTransportPlaintext)!
+                let ciphertext = try cs.encrypt(plaintext: Array(chunk.readableBytesView))
+                // dont pass the write promise into these writes (save it for the final write below)
+                context.write(wrapOutboundOut(context.channel.allocator.buffer(bytes: ciphertext)), promise: nil)
+            }
 
+            let ciphertext = try cs.encrypt(plaintext: Array(bufferIn.readableBytesView))
             let bufferOut = context.channel.allocator.buffer(bytes: ciphertext)
 
             logger.trace("--- 🔒 Outbound Data Encryption Complete 🔒 ---")
-            context.write(wrapOutboundOut(bufferOut), promise: nil)
+            context.write(wrapOutboundOut(bufferOut), promise: promise)
 
         } catch {
 
-            // Do we propogate the error with a fireErrorCaught() ??
             logger.error("Error: \(error)")
+            // Fail the caller's promise so awaited writes are notified, then tear down the channel.
+            promise?.fail(error)
             context.close(promise: nil)
 
         }
@@ -57,7 +72,6 @@ internal final class OutboundNoiseEncryptionHandler: ChannelOutboundHandler, Sen
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
     public func channelWriteComplete(context: ChannelHandlerContext) {
-        //logger.info("Write Complete")
         context.flush()
     }
 
