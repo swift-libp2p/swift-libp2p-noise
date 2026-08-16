@@ -33,12 +33,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-nonisolated struct NoiseExtensions: Sendable {
+struct NoiseExtensions: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -52,7 +52,7 @@ nonisolated struct NoiseExtensions: Sendable {
   init() {}
 }
 
-nonisolated struct NoiseHandshakePayload: Sendable {
+struct NoiseHandshakePayload: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -95,7 +95,7 @@ nonisolated struct NoiseHandshakePayload: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-nonisolated extension NoiseExtensions: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension NoiseExtensions: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = "NoiseExtensions"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}webtransport_certhashes\0\u{3}stream_muxers\0")
 
@@ -130,7 +130,7 @@ nonisolated extension NoiseExtensions: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-nonisolated extension NoiseHandshakePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension NoiseHandshakePayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = "NoiseHandshakePayload"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}identity_key\0\u{3}identity_sig\0\u{2}\u{2}extensions\0")
 
